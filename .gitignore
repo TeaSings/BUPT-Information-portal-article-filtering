@@ -16,6 +16,9 @@ daily/*
 !daily/pending/
 !daily/sent/
 !daily/failed/
+daily/pending/*
+daily/sent/*
+daily/failed/*
 !daily/pending/.gitkeep
 !daily/sent/.gitkeep
 !daily/failed/.gitkeep

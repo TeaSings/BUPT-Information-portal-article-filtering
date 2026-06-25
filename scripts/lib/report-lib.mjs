@@ -11,21 +11,15 @@ function escapeHtml(value) {
 }
 
 function itemReason(article) {
+  if (article.classification.reason) return article.classification.reason;
   const matches = article.classification.matchedKeywords;
-  if (matches.length) return `命中：${matches.join("、")}`;
-  return "含可能需要个人行动的信息";
+  if (matches.length) return `因为它与你关注的学生事务相关，命中字段：${matches.join("、")}。`;
+  return "因为它可能需要个人处理。";
 }
 
 function articleLine(article, index) {
-  const hints = article.classification.actionHints;
-  const hintText = hints.length
-    ? `\n   - 可能行动：${hints.join(" ")}`
-    : "";
-  const source = article.source ? `，${article.source}` : "";
   return `${index + 1}. [${article.title}](${article.url})
-   - 栏目：${article.sectionLabel}${source}
-   - 原因：${itemReason(article)}${hintText}
-   - 摘要：${article.excerpt ? article.excerpt.slice(0, 160) : "暂无正文摘要"}`;
+   - ${itemReason(article)}`;
 }
 
 export function buildMarkdownReport(filtered, config, targetDate) {
@@ -59,7 +53,7 @@ export function buildMarkdownReport(filtered, config, targetDate) {
 
   if (config.email.includeSkippedCount) {
     lines.push("## 过滤说明", "");
-    lines.push("低相关度内容不会进入正文，主要包括纯新闻宣传、会议报道、调研来访等。");
+    lines.push("邮件正文只保留标题和一句话理由；低相关度内容不会进入正文。");
   }
 
   return `${lines.join("\n")}\n`;
@@ -69,17 +63,9 @@ function renderHtmlItems(items) {
   if (!items.length) return "<p>无。</p>";
   return `<ol>${items
     .map((article) => {
-      const hints = article.classification.actionHints;
-      const hintHtml = hints.length
-        ? `<p><strong>可能行动：</strong>${escapeHtml(hints.join(" "))}</p>`
-        : "";
-      const source = article.source ? `，${escapeHtml(article.source)}` : "";
       return `<li>
         <p><a href="${escapeHtml(article.url)}"><strong>${escapeHtml(article.title)}</strong></a></p>
-        <p>栏目：${escapeHtml(article.sectionLabel)}${source}</p>
-        <p>原因：${escapeHtml(itemReason(article))}</p>
-        ${hintHtml}
-        <p>摘要：${escapeHtml(article.excerpt ? article.excerpt.slice(0, 160) : "暂无正文摘要")}</p>
+        <p>${escapeHtml(itemReason(article))}</p>
       </li>`;
     })
     .join("\n")}</ol>`;
@@ -113,7 +99,7 @@ export function buildHtmlReport(filtered, config, targetDate) {
   <p class="meta">筛选结果：必看 ${stats.must} 条，可能有用 ${stats.watch} 条，已忽略 ${stats.skipped} 条。</p>
   ${body}
   <hr>
-  <p class="meta">低相关度内容不会进入正文，主要包括纯新闻宣传、会议报道、调研来访等。</p>
+  <p class="meta">邮件正文只保留标题和一句话理由；低相关度内容不会进入正文。</p>
 </body>
 </html>`;
 }

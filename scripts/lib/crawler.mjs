@@ -60,6 +60,16 @@ function isSameHost(url, baseUrl) {
   }
 }
 
+function isLikelyArticleUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return /(?:content|newscontent|gsggcontent)\.jsp/i.test(parsed.pathname) ||
+      parsed.searchParams.has("wbnewsid");
+  } catch {
+    return false;
+  }
+}
+
 function containsAny(text, keywords) {
   const lower = text.toLowerCase();
   return keywords.some((keyword) => lower.includes(String(keyword).toLowerCase()));
@@ -149,6 +159,11 @@ async function discoverSectionEntries(page, config) {
       score: 999
     }));
 
+    if (configured.length > 0) {
+      entries.set(section.name, uniqueBy(configured, (entry) => entry.url));
+      continue;
+    }
+
     const discovered = links
       .map((link) => ({
         section,
@@ -185,6 +200,7 @@ async function detectLogin(page) {
 async function extractCandidatesFromSection(page, section, config, targetDate) {
   const links = await extractLinks(page, config);
   return links
+    .filter((link) => isLikelyArticleUrl(link.url))
     .map((link) => {
       const combined = `${link.text} ${link.title} ${link.contextText}`;
       const date = parseDateFromText(combined, targetDate);
@@ -223,18 +239,24 @@ async function readArticle(page, candidate, config, targetDate) {
   const extracted = await page.evaluate(() => {
     const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const selectors = [
-      "article",
-      "main",
-      ".article",
-      ".article-content",
-      ".article_content",
-      ".content",
-      ".detail",
-      ".news-detail",
-      ".notice-detail",
       ".v_news_content",
       ".wp_articlecontent",
       ".TRS_Editor",
+      ".article-content",
+      ".article_content",
+      ".news-detail",
+      ".notice-detail",
+      ".detail-content",
+      ".content-detail",
+      ".zhengwen",
+      ".main_con",
+      ".content_con",
+      ".text",
+      "article",
+      "main",
+      ".article",
+      ".detail",
+      ".content",
       "#content"
     ];
 
@@ -242,17 +264,20 @@ async function readArticle(page, candidate, config, targetDate) {
     const title = clean(titleNode ? titleNode.innerText || titleNode.textContent : document.title);
 
     const candidates = selectors
-      .map((selector) => document.querySelector(selector))
-      .filter(Boolean)
-      .map((node) => clean(node.innerText || node.textContent || ""))
-      .filter(Boolean);
+      .map((selector) => ({ selector, node: document.querySelector(selector) }))
+      .filter((candidate) => candidate.node)
+      .map((candidate) => ({
+        selector: candidate.selector,
+        text: clean(candidate.node.innerText || candidate.node.textContent || "")
+      }))
+      .filter((candidate) => candidate.text.length >= 20);
 
-    candidates.push(clean(document.body ? document.body.innerText || document.body.textContent || "" : ""));
-    candidates.sort((a, b) => b.length - a.length);
+    const fullText = clean(document.body ? document.body.innerText || document.body.textContent || "" : "");
 
     return {
       title,
-      bodyText: candidates[0] || "",
+      bodyText: candidates[0]?.text || fullText,
+      fullText,
       pageTitle: clean(document.title)
     };
   });
@@ -260,9 +285,9 @@ async function readArticle(page, candidate, config, targetDate) {
   const bodyText = cleanText(extracted.bodyText);
   const articleDate =
     candidate.date ||
-    parseDateFromText(`${extracted.title} ${bodyText}`, targetDate);
+    parseDateFromText(`${extracted.title} ${bodyText} ${extracted.fullText}`, targetDate);
 
-  const sourceMatch = bodyText.match(/(?:来源|发布单位|发布部门|作者)[:：]\s*([^\s，。；;]{2,30})/);
+  const sourceMatch = cleanText(extracted.fullText).match(/(?:来源|发布单位|发布部门|作者)[:：]\s*([^\s，。；;]{2,30})/);
   const title = cleanText(extracted.title || candidate.text || extracted.pageTitle);
 
   return {
