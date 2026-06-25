@@ -1,0 +1,8 @@
+# This project has no Python package dependencies.
+# Server setup is Node.js based:
+#   - Node.js >= 20
+#   - npm >= 10
+#   - Microsoft Edge, Google Chrome, or Chromium
+#   - project npm dependencies from package-lock.json via: npm ci
+#
+# This file exists only as a deployment note for hosts that expect requirements.txt.

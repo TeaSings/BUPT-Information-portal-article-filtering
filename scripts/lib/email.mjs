@@ -5,12 +5,19 @@ function requireValue(value, name) {
   return value;
 }
 
+function formatChineseDate(ymd) {
+  const match = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return ymd;
+  return `${Number(match[2])}月${Number(match[3])}日`;
+}
+
 export function buildSubject(filtered, config, targetDate) {
   const { stats } = filtered;
+  const dateText = formatChineseDate(targetDate);
   if (stats.kept === 0) {
-    return `${config.email.subjectPrefix} ${targetDate}: 无需重点关注`;
+    return `${config.email.subjectPrefix}｜${dateText}｜今日无需重点关注`;
   }
-  return `${config.email.subjectPrefix} ${targetDate}: ${stats.must} 必看 / ${stats.watch} 可能有用`;
+  return `${config.email.subjectPrefix}｜${dateText}｜${stats.kept} 条值得关注`;
 }
 
 export async function sendReportEmail({ config, filtered, targetDate, markdown, html }) {

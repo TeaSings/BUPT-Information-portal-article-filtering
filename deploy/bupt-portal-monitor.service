@@ -1,0 +1,10 @@
+[Unit]
+Description=BUPT portal monitor daily email job
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/bupt-portal-monitor
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run daily

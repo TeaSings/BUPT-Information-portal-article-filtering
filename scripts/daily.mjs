@@ -3,11 +3,11 @@ import { parseArgs, hasFlag } from "./lib/args.mjs";
 import { loadConfig } from "./lib/config.mjs";
 import { assertYmd, getTargetDate } from "./lib/date-utils.mjs";
 import { crawlPortal } from "./lib/crawler.mjs";
-import { filterArticles } from "./lib/filter.mjs";
 import { paths } from "./lib/paths.mjs";
 import { writeJson } from "./lib/fs-utils.mjs";
 import { saveReports } from "./lib/report-lib.mjs";
 import { cleanupDailyQueue, enqueueDailyReport, processPendingQueue } from "./lib/queue.mjs";
+import { reviewArticlesWithAi } from "./lib/ai-review.mjs";
 
 const args = parseArgs();
 const config = await loadConfig();
@@ -32,7 +32,11 @@ if (crawlResult.needLogin) {
   process.exit(2);
 }
 
-const filtered = filterArticles(crawlResult.articles, config);
+const filtered = await reviewArticlesWithAi({
+  articles: crawlResult.articles,
+  config,
+  targetDate
+});
 filtered.targetDate = targetDate;
 await writeJson(filteredPath, filtered);
 

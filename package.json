@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Daily BUPT portal news and notice monitor with focused email summaries.",
+  "description": "Daily BUPT portal news and notice monitor with DeepSeek-written email summaries.",
   "scripts": {
     "login": "node scripts/login.mjs",
     "check": "node scripts/check.mjs",
+    "review": "node scripts/review.mjs",
     "report": "node scripts/report.mjs",
     "send": "node scripts/send-email.mjs",
     "queue": "node scripts/process-queue.mjs",
@@ -17,6 +18,7 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "nodemailer": "^9.0.1",
+    "openai": "^6.45.0",
     "playwright-core": "^1.61.1"
   },
   "engines": {

@@ -54,5 +54,15 @@ export async function loadConfig() {
     to: process.env.MAIL_TO || config.email.to || ""
   };
 
+  config.deepseek = {
+    apiKey: process.env.DEEPSEEK_API_KEY || "",
+    baseUrl: process.env.DEEPSEEK_BASE_URL || config.ai.baseUrl || "https://api.deepseek.com",
+    model: process.env.DEEPSEEK_MODEL || config.ai.model || "deepseek-v4-flash",
+    maxArticles: Number(process.env.AI_MAX_ARTICLES || config.ai.maxArticles || 80),
+    maxContentChars: Number(process.env.AI_MAX_CONTENT_CHARS || config.ai.maxContentChars || 2600),
+    temperature: Number(process.env.AI_TEMPERATURE || config.ai.temperature || 0.2),
+    promptPath: resolveFromRoot(config.ai.promptPath || "prompts/daily-ai-summary.md")
+  };
+
   return config;
 }

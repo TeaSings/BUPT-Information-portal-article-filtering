@@ -1,11 +1,11 @@
 # BUPT Portal Monitor
 
-每天汇总北京邮电大学信息门户前一天发布的新闻和通知，过滤成你真正需要关注的事项，并通过队列发送邮件。
+每天汇总北京邮电大学信息门户前一天发布的新闻和通知，让 DeepSeek 阅读全部内容，只把真正值得关注的事项写成精简邮件并通过队列发送。
 
 ## 工作方式
 
 1. `npm run login`：手动登录一次门户，保存本机登录态到 `state/bupt-auth.json`。
-2. `npm run daily`：自动抓取昨天发布的新闻和通知，生成报告，写入 `daily/pending/`，然后尝试发送邮件。
+2. `npm run daily`：自动抓取昨天发布的新闻和通知，调用 DeepSeek 阅读全文，生成报告，写入 `daily/pending/`，然后尝试发送邮件。
 3. Codex 自动化或 macOS 定时任务每天运行 `npm run daily`。
 
 登录态、抓取数据、报告和邮箱授权码都不会进入 git。
@@ -51,6 +51,9 @@ SMTP_USER=你的发件邮箱
 SMTP_PASS=邮箱授权码
 MAIL_FROM=你的发件邮箱
 MAIL_TO=你的收件邮箱
+DEEPSEEK_API_KEY=你的DeepSeek API key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
 很多邮箱不允许直接使用登录密码发信，需要在邮箱设置里生成“SMTP 授权码”或“应用专用密码”。
@@ -69,6 +72,7 @@ npm run login
 
 ```bash
 npm run check
+npm run review
 npm run report
 ```
 
@@ -76,6 +80,7 @@ npm run report
 
 ```bash
 npm run check -- --date 2026-06-24
+npm run review -- --date 2026-06-24
 npm run report -- --date 2026-06-24
 ```
 
@@ -101,14 +106,20 @@ npm run daily -- --no-send
 
 等你完成 `npm install`、`.env` 和 `npm run login` 后，可以创建一个 Codex 本地自动化：
 
-> 每天北京时间 8:30，在 `/Users/chensanya/Google Drive/我的云端硬盘/bupt-portal-monitor` 运行 `npm run daily`。任务应汇总前一天发布的新闻和通知，写入 daily 队列并发送邮件；如果登录态过期或邮件发送失败，请在结果里明确告诉我需要重新登录或检查 SMTP 配置。
+> 每天北京时间 8:30，在 `/Users/chensanya/Google Drive/我的云端硬盘/bupt-portal-monitor` 运行 `npm run daily`。任务应抓取前一天发布的新闻和通知，让 DeepSeek 阅读全部文章，写入 daily 队列并发送精简邮件；如果登录态过期、DeepSeek 调用失败或邮件发送失败，请明确告诉我需要处理哪一项配置。
 
-## 调整关注范围
+## Ubuntu 部署
 
-关注关键词在 `config/monitor.config.json` 里。默认重点关注：
+服务端依赖以 Node.js 为主：
 
-- 选课、考试、成绩、奖学金、保研、竞赛
-- 项目报名、科研训练、创新创业、实习就业
-- 教务安排、校历、缴费、宿舍、体检、截止日期
+```bash
+bash deploy/ubuntu-setup.sh
+```
 
-如果发现门户栏目入口没有被正确识别，可以把真实的新闻和通知列表页 URL 填入 `portal.sections[].startUrls`。
+`requirements.txt` 只是给服务器环境的说明占位；真正的 npm 依赖请使用 `package-lock.json`：
+
+```bash
+npm ci
+```
+
+完整部署步骤见 `deploy/ubuntu-deploy.md`。

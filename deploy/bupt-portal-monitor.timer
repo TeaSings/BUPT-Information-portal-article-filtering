@@ -1,0 +1,10 @@
+[Unit]
+Description=Run BUPT portal monitor every morning
+
+[Timer]
+OnCalendar=*-*-* 08:30:00
+Persistent=true
+Unit=bupt-portal-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,204 @@
+import fs from "node:fs/promises";
+import OpenAI from "openai";
+
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncate(value, maxChars) {
+  const text = cleanText(value);
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}...`;
+}
+
+function stripCodeFence(value) {
+  const text = String(value || "").trim();
+  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fence ? fence[1].trim() : text;
+}
+
+function parseJsonObject(value) {
+  const text = stripCodeFence(value);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      return JSON.parse(text.slice(start, end + 1));
+    }
+    throw error;
+  }
+}
+
+function normalizePriority(value) {
+  return value === "watch" ? "watch" : "must";
+}
+
+function normalizeReason(value) {
+  const text = cleanText(value);
+  if (!text) return "AI 判断这条信息可能需要关注。";
+  return text.endsWith("。") || text.endsWith("！") || text.endsWith("？")
+    ? text
+    : `${text}。`;
+}
+
+function articleId(index) {
+  return `a${String(index + 1).padStart(3, "0")}`;
+}
+
+function prepareArticles(articles, config) {
+  const maxArticles = config.deepseek.maxArticles;
+  const maxContentChars = config.deepseek.maxContentChars;
+
+  return articles
+    .filter((article) => cleanText(article.title).length > 0)
+    .filter((article) => cleanText(article.content || article.excerpt).length >= 20)
+    .slice(0, maxArticles)
+    .map((article, index) => ({
+      id: articleId(index),
+      section: article.sectionLabel || article.section || "",
+      title: cleanText(article.title),
+      source: cleanText(article.source),
+      url: article.url,
+      date: article.date,
+      content: truncate(article.content || article.excerpt, maxContentChars),
+      original: article
+    }));
+}
+
+function buildUserPayload(targetDate, preparedArticles) {
+  return JSON.stringify(
+    {
+      date: targetDate,
+      article_count: preparedArticles.length,
+      articles: preparedArticles.map(({ original, ...article }) => article)
+    },
+    null,
+    2
+  );
+}
+
+function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult, model }) {
+  const byId = new Map(preparedArticles.map((article) => [article.id, article]));
+  const used = new Set();
+
+  const kept = [];
+  for (const item of Array.isArray(aiResult.items) ? aiResult.items : []) {
+    const prepared = byId.get(cleanText(item.id));
+    if (!prepared || used.has(prepared.id)) continue;
+    used.add(prepared.id);
+
+    const priority = normalizePriority(item.priority);
+    kept.push({
+      ...prepared.original,
+      ai: {
+        id: prepared.id,
+        model
+      },
+      classification: {
+        priority,
+        priorityLabel: priority === "must" ? "必看" : "可能有用",
+        reason: normalizeReason(item.reason),
+        actionHints: [],
+        keep: true,
+        reviewedBy: "deepseek"
+      }
+    });
+  }
+
+  const keptKeys = new Set(kept.map((article) => article.url || article.title));
+  const skipped = articles
+    .filter((article) => !keptKeys.has(article.url || article.title))
+    .map((article) => ({
+      ...article,
+      classification: {
+        priority: "skip",
+        priorityLabel: "已忽略",
+        reason: "AI 判断无需邮件提醒。",
+        actionHints: [],
+        keep: false,
+        reviewedBy: "deepseek"
+      }
+    }));
+
+  const byPriority = {
+    must: kept.filter((article) => article.classification.priority === "must"),
+    watch: kept.filter((article) => article.classification.priority === "watch")
+  };
+
+  return {
+    targetDate,
+    reviewMode: "ai",
+    ai: {
+      provider: "deepseek",
+      model,
+      overall: cleanText(aiResult.overall),
+      reviewedArticles: preparedArticles.length
+    },
+    kept,
+    skipped,
+    byPriority,
+    stats: {
+      total: articles.length,
+      reviewed: preparedArticles.length,
+      kept: kept.length,
+      must: byPriority.must.length,
+      watch: byPriority.watch.length,
+      skipped: skipped.length
+    }
+  };
+}
+
+export async function reviewArticlesWithAi({ articles, config, targetDate }) {
+  if (!config.deepseek.apiKey) {
+    throw new Error("Missing DEEPSEEK_API_KEY. Fill it in .env before running AI review.");
+  }
+
+  const preparedArticles = prepareArticles(articles, config);
+  if (preparedArticles.length === 0) {
+    return buildFilteredFromAi({
+      targetDate,
+      articles,
+      preparedArticles,
+      aiResult: {
+        items: [],
+        overall: "前一天没有可供 AI 阅读的新闻或通知正文。"
+      },
+      model: config.deepseek.model
+    });
+  }
+
+  const systemPrompt = await fs.readFile(config.deepseek.promptPath, "utf8");
+  const client = new OpenAI({
+    apiKey: config.deepseek.apiKey,
+    baseURL: config.deepseek.baseUrl
+  });
+
+  const completion = await client.chat.completions.create({
+    model: config.deepseek.model,
+    temperature: config.deepseek.temperature,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: buildUserPayload(targetDate, preparedArticles) }
+    ]
+  });
+
+  const content = completion.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("DeepSeek returned an empty response.");
+  }
+
+  const aiResult = parseJsonObject(content);
+  return buildFilteredFromAi({
+    targetDate,
+    articles,
+    preparedArticles,
+    aiResult,
+    model: config.deepseek.model
+  });
+}

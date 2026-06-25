@@ -16,4 +16,7 @@ console.log(`SMTP host configured: ${Boolean(config.smtp.host)}`);
 console.log(`SMTP user configured: ${Boolean(config.smtp.user)}`);
 console.log(`SMTP password configured: ${Boolean(config.smtp.pass)}`);
 console.log(`Mail recipient configured: ${Boolean(config.smtp.to)}`);
+console.log(`DeepSeek base URL: ${config.deepseek.baseUrl}`);
+console.log(`DeepSeek model: ${config.deepseek.model}`);
+console.log(`DeepSeek API key configured: ${Boolean(config.deepseek.apiKey)}`);
 console.log(`Daily queue dir: ${config.queue.dailyDir}`);
