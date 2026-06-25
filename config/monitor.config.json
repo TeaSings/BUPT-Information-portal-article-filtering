@@ -1,0 +1,123 @@
+{
+  "portal": {
+    "baseUrl": "http://my.bupt.edu.cn/",
+    "timezone": "Asia/Shanghai",
+    "authStatePath": "state/bupt-auth.json",
+    "sections": [
+      {
+        "name": "news",
+        "label": "新闻",
+        "startUrls": [],
+        "entryTextHints": ["新闻", "校园新闻", "综合新闻", "要闻"],
+        "entryHrefHints": ["news", "xw", "xinwen"]
+      },
+      {
+        "name": "notice",
+        "label": "通知",
+        "startUrls": [],
+        "entryTextHints": ["通知", "公告", "通知公告", "公示"],
+        "entryHrefHints": ["notice", "tz", "gonggao", "announcement"]
+      }
+    ]
+  },
+  "crawler": {
+    "headless": true,
+    "navigationTimeoutMs": 30000,
+    "maxArticlePages": 80,
+    "maxSectionEntryUrls": 4,
+    "includeSameHostOnly": true,
+    "blockedFileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".css", ".js", ".zip", ".rar", ".7z", ".mp4", ".mp3"]
+  },
+  "focus": {
+    "mustReadKeywords": [
+      "选课",
+      "考试",
+      "补考",
+      "缓考",
+      "重修",
+      "成绩",
+      "绩点",
+      "学分",
+      "奖学金",
+      "助学金",
+      "保研",
+      "推免",
+      "夏令营",
+      "预推免",
+      "竞赛",
+      "大英赛",
+      "数学建模",
+      "蓝桥杯",
+      "挑战杯",
+      "互联网+",
+      "项目报名",
+      "报名",
+      "截止",
+      "教务",
+      "校历",
+      "缴费",
+      "宿舍",
+      "体检",
+      "四六级",
+      "CET",
+      "实习",
+      "就业",
+      "招聘",
+      "科研训练",
+      "创新创业",
+      "大创",
+      "SRTP",
+      "交换",
+      "访学",
+      "出国",
+      "综合测评"
+    ],
+    "watchKeywords": [
+      "讲座",
+      "报告",
+      "论坛",
+      "培训",
+      "志愿",
+      "第二课堂",
+      "学院",
+      "计算机",
+      "人工智能",
+      "软件",
+      "网络空间安全",
+      "电子信息",
+      "研究生",
+      "导师",
+      "实验室",
+      "竞聘",
+      "公示"
+    ],
+    "ignoreKeywords": [
+      "学习贯彻",
+      "座谈会",
+      "调研",
+      "慰问",
+      "来访",
+      "签约仪式",
+      "理论学习",
+      "党委",
+      "党支部",
+      "工会",
+      "离退休",
+      "会议召开"
+    ]
+  },
+  "email": {
+    "subjectPrefix": "北邮信息门户日报",
+    "fromName": "BUPT Portal Monitor",
+    "to": "",
+    "includeSkippedCount": true
+  },
+  "queue": {
+    "dailyDir": "daily",
+    "retentionDays": {
+      "sent": 30,
+      "failed": 14,
+      "pending": 45
+    }
+  }
+}
