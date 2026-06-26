@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { sendReportEmail } from "./email.mjs";
+import { parseRecipients, sendReportEmail } from "./email.mjs";
 import { ensureDir, pathExists, readJson, writeJson } from "./fs-utils.mjs";
 import { resolveFromRoot } from "./paths.mjs";
 
@@ -30,6 +30,63 @@ export async function queueStatusForDate(config, targetDate) {
     if (await pathExists(queueJobPath(config, status, targetDate))) return status;
   }
   return null;
+}
+
+function normalizeRecipient(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export function currentRecipients(config) {
+  return parseRecipients(config.smtp.to);
+}
+
+export function acceptedRecipients(job) {
+  const accepted = new Map();
+  for (const attempt of job.attempts || []) {
+    for (const recipient of parseRecipients(attempt.accepted || [])) {
+      accepted.set(normalizeRecipient(recipient), recipient);
+    }
+  }
+  return Array.from(accepted.values());
+}
+
+export function missingRecipients(config, job) {
+  const delivered = new Set(acceptedRecipients(job).map(normalizeRecipient));
+  return currentRecipients(config).filter((recipient) => !delivered.has(normalizeRecipient(recipient)));
+}
+
+async function readQueueJobForDate(config, targetDate) {
+  await ensureQueueDirs(config);
+  for (const status of statuses) {
+    const file = queueJobPath(config, status, targetDate);
+    const job = await readJson(file);
+    if (job) return { status, file, job };
+  }
+  return null;
+}
+
+export async function queueDeliveryStatus(config, targetDate) {
+  const found = await readQueueJobForDate(config, targetDate);
+  if (!found) {
+    return {
+      exists: false,
+      status: null,
+      delivered: [],
+      missing: currentRecipients(config)
+    };
+  }
+
+  const delivered = acceptedRecipients(found.job);
+  const missing = missingRecipients(config, found.job);
+  return {
+    exists: true,
+    status: found.status,
+    path: found.file,
+    delivered,
+    missing,
+    complete: missing.length === 0,
+    job: found.job
+  };
 }
 
 export async function enqueueDailyReport({
@@ -105,14 +162,56 @@ async function moveJob(config, fromStatus, toStatus, job, patch = {}) {
   return toPath;
 }
 
+export async function requeueIfMissingRecipients(config, targetDate) {
+  const delivery = await queueDeliveryStatus(config, targetDate);
+  if (!delivery.exists || delivery.status !== "sent" || delivery.complete) {
+    return {
+      requeued: false,
+      ...delivery
+    };
+  }
+
+  const pendingPath = await moveJob(config, "sent", "pending", delivery.job, {
+    requeuedAt: new Date().toISOString(),
+    requeueReason: "missing-recipients",
+    missingRecipients: delivery.missing
+  });
+
+  return {
+    requeued: true,
+    ...delivery,
+    status: "pending",
+    path: pendingPath
+  };
+}
+
 export async function processPendingQueue(config, options = {}) {
   await ensureQueueDirs(config);
+  if (!currentRecipients(config).length) {
+    throw new Error("Missing MAIL_TO. Fill at least one recipient in .env first.");
+  }
   const pending = await listQueueJobs(config, "pending");
   const results = [];
 
   for (const { job } of pending) {
+    const recipients = missingRecipients(config, job);
+    if (!recipients.length) {
+      const sentPath = await moveJob(config, "pending", "sent", job, {
+        sentAt: job.sentAt || new Date().toISOString()
+      });
+      results.push({
+        ok: true,
+        targetDate: job.targetDate,
+        path: sentPath,
+        alreadyDelivered: true,
+        recipients: []
+      });
+      continue;
+    }
+
     const attempt = {
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      requested: recipients
     };
 
     try {
@@ -121,19 +220,52 @@ export async function processPendingQueue(config, options = {}) {
         filtered: job.filtered,
         targetDate: job.targetDate,
         markdown: job.markdown,
-        html: job.html
+        html: job.html,
+        recipients
       });
       attempt.finishedAt = new Date().toISOString();
-      attempt.ok = true;
+      attempt.ok = !info.rejected?.length;
       attempt.messageId = info.messageId;
       attempt.accepted = info.accepted;
       attempt.rejected = info.rejected;
 
-      const sentPath = await moveJob(config, "pending", "sent", job, {
-        sentAt: attempt.finishedAt,
+      const nextJob = {
+        ...job,
         attempts: [...(job.attempts || []), attempt]
+      };
+      const remaining = missingRecipients(config, nextJob);
+      if (remaining.length) {
+        const failedPath = await moveJob(config, "pending", "failed", nextJob, {
+          failedAt: attempt.finishedAt,
+          missingRecipients: remaining
+        });
+        results.push({
+          ok: false,
+          targetDate: job.targetDate,
+          path: failedPath,
+          messageId: info.messageId,
+          accepted: info.accepted,
+          rejected: info.rejected,
+          recipients,
+          error: `Some recipients were not accepted: ${remaining.join(", ")}`
+        });
+        if (options.stopOnFailure) break;
+        continue;
+      }
+
+      const sentPath = await moveJob(config, "pending", "sent", nextJob, {
+        sentAt: attempt.finishedAt,
+        missingRecipients: []
       });
-      results.push({ ok: true, targetDate: job.targetDate, path: sentPath, messageId: info.messageId });
+      results.push({
+        ok: true,
+        targetDate: job.targetDate,
+        path: sentPath,
+        messageId: info.messageId,
+        accepted: info.accepted,
+        rejected: info.rejected,
+        recipients
+      });
     } catch (error) {
       attempt.finishedAt = new Date().toISOString();
       attempt.ok = false;

@@ -24,3 +24,4 @@ daily/failed/*
 !daily/failed/.gitkeep
 
 *.log
+*.swp

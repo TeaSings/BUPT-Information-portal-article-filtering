@@ -1,8 +1,16 @@
 import nodemailer from "nodemailer";
+import { buildHtmlReport, buildMarkdownReport } from "./report-lib.mjs";
 
 function requireValue(value, name) {
   if (!value) throw new Error(`Missing ${name}. Fill it in .env first.`);
   return value;
+}
+
+export function parseRecipients(value) {
+  return String(value || "")
+    .split(/[,;\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function formatChineseDate(ymd) {
@@ -20,7 +28,7 @@ export function buildSubject(filtered, config, targetDate) {
   return `${config.email.subjectPrefix}｜${dateText}｜${stats.kept} 条值得关注`;
 }
 
-export async function sendReportEmail({ config, filtered, targetDate, markdown, html }) {
+export async function sendReportEmail({ config, filtered, targetDate, markdown, html, recipients = null }) {
   const smtp = config.smtp;
   const transporter = nodemailer.createTransport({
     host: requireValue(smtp.host, "SMTP_HOST"),
@@ -33,22 +41,32 @@ export async function sendReportEmail({ config, filtered, targetDate, markdown, 
   });
 
   const fromAddress = requireValue(smtp.from, "MAIL_FROM");
-  const toAddress = requireValue(smtp.to, "MAIL_TO");
+  const toAddress = recipients ? parseRecipients(recipients).join(",") : requireValue(smtp.to, "MAIL_TO");
+  if (!toAddress) throw new Error("No email recipients to send.");
   const from = config.email.fromName
     ? `"${config.email.fromName}" <${fromAddress}>`
     : fromAddress;
+
+  const sendTime = new Date();
+  const finalMarkdown = filtered
+    ? buildMarkdownReport(filtered, config, targetDate, { now: sendTime })
+    : markdown;
+  const finalHtml = filtered
+    ? buildHtmlReport(filtered, config, targetDate, { now: sendTime })
+    : html;
 
   const info = await transporter.sendMail({
     from,
     to: toAddress,
     subject: buildSubject(filtered, config, targetDate),
-    text: markdown,
-    html
+    text: finalMarkdown,
+    html: finalHtml
   });
 
   return {
     messageId: info.messageId,
     accepted: info.accepted,
-    rejected: info.rejected
+    rejected: info.rejected,
+    requested: parseRecipients(toAddress)
   };
 }

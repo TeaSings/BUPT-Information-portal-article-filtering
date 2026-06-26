@@ -1,7 +1,9 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { launchBrowser } from "./browser.mjs";
-import { pathExists } from "./fs-utils.mjs";
+import { ensureDir, pathExists } from "./fs-utils.mjs";
 import { parseDateFromText } from "./date-utils.mjs";
+import { createOcrRunner } from "./ocr.mjs";
 
 const navText = new Set([
   "首页",
@@ -44,6 +46,121 @@ function resolveUrl(href, baseUrl) {
   }
 }
 
+function padNumber(value, width = 3) {
+  return String(value).padStart(width, "0");
+}
+
+function fileExtensionFromImage(url, contentType = "") {
+  const lowerType = String(contentType).toLowerCase();
+  if (lowerType.includes("jpeg") || lowerType.includes("jpg")) return ".jpg";
+  if (lowerType.includes("png")) return ".png";
+  if (lowerType.includes("webp")) return ".webp";
+  if (lowerType.includes("bmp")) return ".bmp";
+  if (lowerType.includes("tiff")) return ".tiff";
+
+  try {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    if ([".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"].includes(ext)) {
+      return ext === ".jpeg" ? ".jpg" : ext;
+    }
+  } catch {}
+
+  return ".png";
+}
+
+function isUsefulArticleImage(image, config) {
+  if (!image?.url || !/^https?:\/\//i.test(image.url)) return false;
+  const lowerUrl = image.url.toLowerCase();
+  if (/\.(svg|gif)(?:[?#].*)?$/i.test(lowerUrl)) return false;
+  if (/(?:logo|icon|sprite|avatar|banner|favicon)/i.test(`${image.alt} ${image.title} ${image.className} ${lowerUrl}`)) {
+    return false;
+  }
+
+  const minDimension = Number(config.crawler.minImageDimension || 80);
+  const width = Number(image.width || 0);
+  const height = Number(image.height || 0);
+  if (width > 0 && width < minDimension) return false;
+  if (height > 0 && height < minDimension) return false;
+  return true;
+}
+
+async function downloadArticleImage(page, image, config, targetDate, articleKey, imageIndex) {
+  const response = await page.context().request.get(image.url, {
+    timeout: config.crawler.navigationTimeoutMs
+  });
+
+  if (!response.ok()) {
+    throw new Error(`Image request failed with HTTP ${response.status()}`);
+  }
+
+  const headers = response.headers();
+  const contentLength = Number(headers["content-length"] || 0);
+  const maxBytes = Number(config.crawler.maxImageBytes || 8 * 1024 * 1024);
+  if (contentLength > maxBytes) {
+    throw new Error(`Image is too large: ${contentLength} bytes`);
+  }
+
+  const buffer = await response.body();
+  if (buffer.length > maxBytes) {
+    throw new Error(`Image is too large: ${buffer.length} bytes`);
+  }
+
+  const ext = fileExtensionFromImage(image.url, headers["content-type"]);
+  const assetDir = path.join(config.runtime.repoRoot, "data", "assets", targetDate, articleKey);
+  await ensureDir(assetDir);
+  const localPath = path.join(assetDir, `image-${padNumber(imageIndex)}${ext}`);
+  await fs.writeFile(localPath, buffer);
+
+  return {
+    ...image,
+    localPath,
+    relativePath: path.relative(config.runtime.repoRoot, localPath),
+    contentType: headers["content-type"] || "",
+    bytes: buffer.length
+  };
+}
+
+async function enrichArticleImages(page, images, config, targetDate, articleKey, ocr) {
+  if (!config.crawler.collectImages) return [];
+  if (!ocr) return [];
+
+  const selected = uniqueBy(images.filter((image) => isUsefulArticleImage(image, config)), (image) => image.url)
+    .slice(0, Number(config.crawler.maxImagesPerArticle || 6));
+
+  const results = [];
+  for (const [index, image] of selected.entries()) {
+    try {
+      const downloaded = await downloadArticleImage(page, image, config, targetDate, articleKey, index + 1);
+      const ocrResult = await ocr.recognize(downloaded.localPath);
+      results.push({
+        ...downloaded,
+        ocrText: ocrResult.text,
+        ocr: {
+          ok: ocrResult.ok,
+          skipped: ocrResult.skipped,
+          confidence: ocrResult.confidence ?? null,
+          error: ocrResult.error || ""
+        }
+      });
+    } catch (error) {
+      results.push({
+        ...image,
+        localPath: "",
+        relativePath: "",
+        ocrText: "",
+        ocr: {
+          ok: false,
+          skipped: false,
+          confidence: null,
+          error: error.message
+        }
+      });
+    }
+  }
+
+  return results;
+}
+
 function isBlockedUrl(url, config) {
   if (!url || !/^https?:\/\//i.test(url)) return true;
   const lower = new URL(url).pathname.toLowerCase();
@@ -70,9 +187,9 @@ function isLikelyArticleUrl(url) {
   }
 }
 
-function containsAny(text, keywords) {
+function containsAny(text, hints) {
   const lower = text.toLowerCase();
-  return keywords.some((keyword) => lower.includes(String(keyword).toLowerCase()));
+  return hints.some((hint) => lower.includes(String(hint).toLowerCase()));
 }
 
 function scoreSectionEntry(link, section) {
@@ -221,7 +338,7 @@ async function extractCandidatesFromSection(page, section, config, targetDate) {
     .sort((a, b) => b.score - a.score);
 }
 
-async function readArticle(page, candidate, config, targetDate) {
+async function readArticle(page, candidate, config, targetDate, options = {}) {
   try {
     await safeGoto(page, candidate.url, config);
   } catch (error) {
@@ -232,6 +349,7 @@ async function readArticle(page, candidate, config, targetDate) {
       source: "",
       content: "",
       excerpt: "",
+      images: [],
       readError: error.message
     };
   }
@@ -268,17 +386,53 @@ async function readArticle(page, candidate, config, targetDate) {
       .filter((candidate) => candidate.node)
       .map((candidate) => ({
         selector: candidate.selector,
+        node: candidate.node,
         text: clean(candidate.node.innerText || candidate.node.textContent || "")
       }))
       .filter((candidate) => candidate.text.length >= 20);
 
+    const contentNode = candidates[0]?.node || document.body;
     const fullText = clean(document.body ? document.body.innerText || document.body.textContent || "" : "");
+    const imageAttrs = ["src", "data-src", "data-original", "data-url", "_src", "file"];
+    const images = Array.from(contentNode ? contentNode.querySelectorAll("img") : [])
+      .map((img) => {
+        const srcset = (img.getAttribute("srcset") || "")
+          .split(",")
+          .map((item) => item.trim().split(/\s+/)[0])
+          .find(Boolean);
+        const rawSrc =
+          img.currentSrc ||
+          imageAttrs.map((attr) => img.getAttribute(attr)).find(Boolean) ||
+          srcset ||
+          "";
+
+        let url = "";
+        try {
+          url = new URL(rawSrc, document.baseURI).toString();
+        } catch {}
+
+        const width = Number(img.naturalWidth || img.width || img.getAttribute("width") || 0);
+        const height = Number(img.naturalHeight || img.height || img.getAttribute("height") || 0);
+        const nearText = clean(img.closest("p, figure, div, td, li")?.innerText || "");
+
+        return {
+          url,
+          alt: clean(img.getAttribute("alt") || ""),
+          title: clean(img.getAttribute("title") || ""),
+          className: clean(img.getAttribute("class") || ""),
+          width,
+          height,
+          nearText
+        };
+      })
+      .filter((image) => image.url);
 
     return {
       title,
       bodyText: candidates[0]?.text || fullText,
       fullText,
-      pageTitle: clean(document.title)
+      pageTitle: clean(document.title),
+      images
     };
   });
 
@@ -289,6 +443,15 @@ async function readArticle(page, candidate, config, targetDate) {
 
   const sourceMatch = cleanText(extracted.fullText).match(/(?:来源|发布单位|发布部门|作者)[:：]\s*([^\s，。；;]{2,30})/);
   const title = cleanText(extracted.title || candidate.text || extracted.pageTitle);
+  const articleKey = `article-${padNumber(options.articleIndex || 1)}`;
+  const images = await enrichArticleImages(
+    page,
+    extracted.images || [],
+    config,
+    targetDate,
+    articleKey,
+    options.ocr
+  );
 
   return {
     ...candidate,
@@ -296,7 +459,8 @@ async function readArticle(page, candidate, config, targetDate) {
     date: articleDate,
     source: sourceMatch ? sourceMatch[1] : "",
     content: bodyText,
-    excerpt: bodyText.slice(0, 600)
+    excerpt: bodyText.slice(0, 600),
+    images
   };
 }
 
@@ -314,6 +478,7 @@ export async function crawlPortal({ config, targetDate, headless, debug = false 
 
   const page = await context.newPage();
   page.setDefaultTimeout(config.crawler.navigationTimeoutMs);
+  const ocr = createOcrRunner(config);
 
   try {
     await safeGoto(page, config.portal.baseUrl, config);
@@ -350,9 +515,12 @@ export async function crawlPortal({ config, targetDate, headless, debug = false 
       .slice(0, config.crawler.maxArticlePages);
 
     const articles = [];
-    for (const candidate of candidates) {
+    for (const [index, candidate] of candidates.entries()) {
       if (debug) console.log(`[article] ${candidate.sectionLabel}: ${candidate.text}`);
-      const article = await readArticle(page, candidate, config, targetDate);
+      const article = await readArticle(page, candidate, config, targetDate, {
+        articleIndex: index + 1,
+        ocr
+      });
       if (article.date === targetDate) articles.push(article);
     }
 
@@ -374,6 +542,7 @@ export async function crawlPortal({ config, targetDate, headless, debug = false 
       }
     };
   } finally {
+    await ocr.close().catch(() => {});
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
   }

@@ -16,25 +16,49 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function itemReason(article) {
-  if (article.classification.reason) return article.classification.reason;
-  return "这条信息可能需要你留意。";
+function hourInTimezone(date, timezone) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone || "Asia/Shanghai",
+    hour: "numeric",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  return Number(parts.find((part) => part.type === "hour")?.value || 0);
+}
+
+function greetingFor(date, timezone) {
+  const hour = hourInTimezone(date, timezone);
+  if (hour >= 5 && hour < 11) return "早上好";
+  if (hour >= 11 && hour < 14) return "中午好";
+  if (hour >= 14 && hour < 18) return "下午好";
+  if (hour >= 18 && hour < 23) return "晚上好";
+  return "夜深了";
+}
+
+function openingLine(config, targetDate, now) {
+  const greeting = greetingFor(now, config.portal.timezone);
+  return `${greeting}！请查收${formatChineseDate(targetDate)}的信息门户日报。`;
+}
+
+function itemSummary(article) {
+  if (article.classification.summary) return article.classification.summary;
+  return "这篇文章包含一条可能需要关注的信息。";
 }
 
 function articleLine(article, index) {
   return `${index + 1}. [${article.title}](${article.url})
-   - 为什么发给你：${itemReason(article)}`;
+   - 内容精简：${itemSummary(article)}`;
 }
 
-export function buildMarkdownReport(filtered, config, targetDate) {
+export function buildMarkdownReport(filtered, config, targetDate, options = {}) {
   const { stats, byPriority } = filtered;
   const dateText = formatChineseDate(targetDate);
   const title = `${config.email.subjectPrefix}｜${dateText}`;
   const overall = filtered.ai?.overall || "我已经帮你读完了当天发布的新闻和通知。";
+  const now = options.now || new Date();
   const lines = [
     `# ${title}`,
     "",
-    `早上好！请查收${dateText}的信息门户日报。`,
+    openingLine(config, targetDate, now),
     "",
     `${overall}`,
     "",
@@ -65,6 +89,8 @@ export function buildMarkdownReport(filtered, config, targetDate) {
     lines.push(`其余 ${stats.skipped} 条我没有放进正文，主要是低相关通知、行政公示或新闻回顾。`);
   }
 
+  lines.push("", "祝你在北邮有美好的一天！");
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -74,17 +100,18 @@ function renderHtmlItems(items) {
     .map((article) => {
       return `<li>
         <p><a href="${escapeHtml(article.url)}"><strong>${escapeHtml(article.title)}</strong></a></p>
-        <p><strong>为什么发给你：</strong>${escapeHtml(itemReason(article))}</p>
+        <p><strong>内容精简：</strong>${escapeHtml(itemSummary(article))}</p>
       </li>`;
     })
     .join("\n")}</ol>`;
 }
 
-export function buildHtmlReport(filtered, config, targetDate) {
+export function buildHtmlReport(filtered, config, targetDate, options = {}) {
   const { stats, byPriority } = filtered;
   const dateText = formatChineseDate(targetDate);
   const title = `${config.email.subjectPrefix}｜${dateText}`;
   const overall = filtered.ai?.overall || "我已经帮你读完了当天发布的新闻和通知。";
+  const now = options.now || new Date();
 
   const body =
     stats.kept === 0
@@ -107,12 +134,13 @@ export function buildHtmlReport(filtered, config, targetDate) {
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
-  <p class="hello">早上好！请查收${escapeHtml(dateText)}的信息门户日报。</p>
+  <p class="hello">${escapeHtml(openingLine(config, targetDate, now))}</p>
   <p>${escapeHtml(overall)}</p>
   <p class="meta">我阅读了 ${stats.reviewed ?? stats.total} 条新闻和通知，筛出 ${stats.kept} 条值得关注的信息。</p>
   ${body}
   <hr>
   <p class="meta">其余 ${stats.skipped} 条我没有放进正文，主要是低相关通知、行政公示或新闻回顾。</p>
+  <p>祝你在北邮有美好的一天！</p>
 </body>
 </html>`;
 }

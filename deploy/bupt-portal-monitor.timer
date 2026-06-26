@@ -1,8 +1,8 @@
 [Unit]
-Description=Run BUPT portal monitor every morning
+Description=Run BUPT portal monitor every hour
 
 [Timer]
-OnCalendar=*-*-* 08:30:00
+OnCalendar=hourly
 Persistent=true
 Unit=bupt-portal-monitor.service
 

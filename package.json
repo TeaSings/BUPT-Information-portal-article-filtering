@@ -6,6 +6,7 @@
   "description": "Daily BUPT portal news and notice monitor with DeepSeek-written email summaries.",
   "scripts": {
     "login": "node scripts/login.mjs",
+    "login:auto": "node scripts/login-auto.mjs",
     "check": "node scripts/check.mjs",
     "review": "node scripts/review.mjs",
     "report": "node scripts/report.mjs",
@@ -13,13 +14,16 @@
     "queue": "node scripts/process-queue.mjs",
     "cleanup": "node scripts/cleanup-daily.mjs",
     "daily": "node scripts/daily.mjs",
+    "hourly": "node scripts/hourly.mjs",
+    "netcheck": "node scripts/netcheck.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
     "nodemailer": "^9.0.1",
     "openai": "^6.45.0",
-    "playwright-core": "^1.61.1"
+    "playwright-core": "^1.61.1",
+    "tesseract.js": "^7.0.0"
   },
   "engines": {
     "node": ">=20"

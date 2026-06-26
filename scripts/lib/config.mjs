@@ -24,6 +24,15 @@ function envBool(name, fallback) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function envList(name, fallback) {
+  const value = process.env[name];
+  if (value === undefined || value === "") return fallback;
+  return value
+    .split(/[,+]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export async function loadConfig() {
   dotenv.config({ path: paths.env, quiet: true });
 
@@ -44,6 +53,13 @@ export async function loadConfig() {
       "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
   };
 
+  config.portalAuth = {
+    username: process.env.BUPT_USERNAME || "",
+    password: process.env.BUPT_PASSWORD || "",
+    autoLogin: envBool("BUPT_AUTO_LOGIN", false),
+    loginTimeoutMs: Number(process.env.BUPT_LOGIN_TIMEOUT_MS || 45000)
+  };
+
   config.smtp = {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT || 465),
@@ -57,11 +73,20 @@ export async function loadConfig() {
   config.deepseek = {
     apiKey: process.env.DEEPSEEK_API_KEY || "",
     baseUrl: process.env.DEEPSEEK_BASE_URL || config.ai.baseUrl || "https://api.deepseek.com",
-    model: process.env.DEEPSEEK_MODEL || config.ai.model || "deepseek-v4-flash",
+    model: process.env.DEEPSEEK_MODEL || config.ai.model || "deepseek-v4-pro",
     maxArticles: Number(process.env.AI_MAX_ARTICLES || config.ai.maxArticles || 80),
     maxContentChars: Number(process.env.AI_MAX_CONTENT_CHARS || config.ai.maxContentChars || 2600),
+    maxImageOcrChars: Number(process.env.AI_MAX_IMAGE_OCR_CHARS || config.ai.maxImageOcrChars || 1800),
     temperature: Number(process.env.AI_TEMPERATURE || config.ai.temperature || 0.2),
+    thinking: process.env.DEEPSEEK_THINKING || config.ai.thinking || "enabled",
+    reasoningEffort: process.env.DEEPSEEK_REASONING_EFFORT || config.ai.reasoningEffort || "high",
     promptPath: resolveFromRoot(config.ai.promptPath || "prompts/daily-ai-summary.md")
+  };
+
+  config.ocr = {
+    enabled: envBool("OCR_ENABLED", config.ocr?.enabled ?? true),
+    languages: envList("OCR_LANGUAGES", config.ocr?.languages || ["chi_sim", "eng"]),
+    cacheDir: resolveFromRoot(process.env.OCR_CACHE_DIR || config.ocr?.cacheDir || "data/ocr-cache")
   };
 
   return config;

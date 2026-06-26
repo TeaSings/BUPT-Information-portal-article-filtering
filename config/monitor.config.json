@@ -28,6 +28,10 @@
     "headless": true,
     "navigationTimeoutMs": 30000,
     "maxArticlePages": 80,
+    "collectImages": true,
+    "maxImagesPerArticle": 6,
+    "minImageDimension": 80,
+    "maxImageBytes": 8388608,
     "maxSectionEntryUrls": 4,
     "includeSameHostOnly": true,
     "blockedFileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".css", ".js", ".zip", ".rar", ".7z", ".mp4", ".mp3"]
@@ -35,11 +39,19 @@
   "ai": {
     "enabled": true,
     "baseUrl": "https://api.deepseek.com",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-v4-pro",
     "maxArticles": 80,
     "maxContentChars": 2600,
+    "maxImageOcrChars": 1800,
     "temperature": 0.2,
+    "thinking": "enabled",
+    "reasoningEffort": "high",
     "promptPath": "prompts/daily-ai-summary.md"
+  },
+  "ocr": {
+    "enabled": true,
+    "languages": ["chi_sim", "eng"],
+    "cacheDir": "data/ocr-cache"
   },
   "email": {
     "subjectPrefix": "北邮信息门户日报",

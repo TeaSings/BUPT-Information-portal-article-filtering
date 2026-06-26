@@ -1,71 +1,54 @@
 # Ubuntu Deployment
 
-## 1. Clone
+每小时运行一次 `npm run hourly`。脚本会按收件人去重，已收到日报的邮箱不会重复收到。
+
+## Install
 
 ```bash
 sudo mkdir -p /opt/bupt-portal-monitor
 sudo chown "$USER":"$USER" /opt/bupt-portal-monitor
 git clone git@github.com:TeaSings/BUPT-Information-portal-article-filtering.git /opt/bupt-portal-monitor
 cd /opt/bupt-portal-monitor
-```
-
-## 2. Install Dependencies
-
-```bash
 bash deploy/ubuntu-setup.sh
 ```
 
-Node dependencies are locked in `package-lock.json`, so use `npm ci` on the server.
-
-## 3. Configure Secrets
-
-Create `.env` on the server:
+## Configure
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Required values:
+服务器建议设置：
 
 ```env
-SMTP_HOST=smtp.qq.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=your@qq.com
-SMTP_PASS=your_qq_mail_authorization_code
-MAIL_FROM=your@qq.com
-MAIL_TO=teasings@qq.com,1983856855@qq.com
-
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
+BUPT_AUTO_LOGIN=true
+BUPT_USERNAME=your_bupt_username
+BUPT_PASSWORD=your_bupt_password
 ```
 
-Keep `.env` out of git, even for private repositories.
+同时填写 SMTP、`MAIL_TO` 和 `DEEPSEEK_API_KEY`。
 
-## 4. Portal Login State
+## VPN
 
-Copy a valid local login state if it still works on the server:
+先在服务器上连接北邮 VPN/aTrust，再跑脚本。连接后检查：
 
 ```bash
-mkdir -p state
-scp state/bupt-auth.json user@server:/opt/bupt-portal-monitor/state/bupt-auth.json
+npm run netcheck
 ```
 
-If the portal binds sessions to IP or device, you need to run `npm run login` on the server through a GUI/Xvfb/browser session, or refresh the state from a machine that can access the portal.
+如果服务器没有图形界面，先用 VNC/RDP/控制台完成 aTrust 登录。VPN 保持在线后再启用 timer。
 
-## 5. Test
+## Verify
 
 ```bash
 npm run doctor
-npm run check
-npm run review
-npm run report
-npm run send -- --force
+npm run netcheck
+npm run login:auto
+npm run hourly
 ```
 
-## 6. Enable systemd Timer
+## Enable Timer
 
 ```bash
 sudo cp deploy/bupt-portal-monitor.service /etc/systemd/system/
@@ -75,7 +58,7 @@ sudo systemctl enable --now bupt-portal-monitor.timer
 systemctl list-timers | grep bupt
 ```
 
-Logs:
+日志：
 
 ```bash
 journalctl -u bupt-portal-monitor.service -n 200 --no-pager

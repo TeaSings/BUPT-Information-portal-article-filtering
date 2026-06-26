@@ -38,9 +38,9 @@ function normalizePriority(value) {
   return value === "watch" ? "watch" : "must";
 }
 
-function normalizeReason(value) {
+function normalizeSummary(value) {
   const text = cleanText(value);
-  if (!text) return "AI 判断这条信息可能需要关注。";
+  if (!text) return "这篇文章包含一条可能需要关注的信息。";
   return text.endsWith("。") || text.endsWith("！") || text.endsWith("？")
     ? text
     : `${text}。`;
@@ -50,24 +50,46 @@ function articleId(index) {
   return `a${String(index + 1).padStart(3, "0")}`;
 }
 
+function imageOcrText(article, maxChars) {
+  const text = (article.images || [])
+    .map((image, index) => {
+      const ocrText = cleanText(image.ocrText);
+      if (!ocrText) return "";
+      return `图片${index + 1} OCR：${ocrText}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+  return truncate(text, maxChars);
+}
+
 function prepareArticles(articles, config) {
   const maxArticles = config.deepseek.maxArticles;
   const maxContentChars = config.deepseek.maxContentChars;
+  const maxImageOcrChars = config.deepseek.maxImageOcrChars;
 
   return articles
     .filter((article) => cleanText(article.title).length > 0)
-    .filter((article) => cleanText(article.content || article.excerpt).length >= 20)
+    .filter((article) => {
+      const content = cleanText(article.content || article.excerpt);
+      const ocrText = imageOcrText(article, maxImageOcrChars);
+      return cleanText(`${content} ${ocrText}`).length >= 20;
+    })
     .slice(0, maxArticles)
-    .map((article, index) => ({
-      id: articleId(index),
-      section: article.sectionLabel || article.section || "",
-      title: cleanText(article.title),
-      source: cleanText(article.source),
-      url: article.url,
-      date: article.date,
-      content: truncate(article.content || article.excerpt, maxContentChars),
-      original: article
-    }));
+    .map((article, index) => {
+      const imageText = imageOcrText(article, maxImageOcrChars);
+      return {
+        id: articleId(index),
+        section: article.sectionLabel || article.section || "",
+        title: cleanText(article.title),
+        source: cleanText(article.source),
+        url: article.url,
+        date: article.date,
+        content: truncate(article.content || article.excerpt, maxContentChars),
+        image_count: (article.images || []).length,
+        image_ocr_text: imageText,
+        original: article
+      };
+    });
 }
 
 function buildUserPayload(targetDate, preparedArticles) {
@@ -93,6 +115,7 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
     used.add(prepared.id);
 
     const priority = normalizePriority(item.priority);
+    const summary = normalizeSummary(item.summary);
     kept.push({
       ...prepared.original,
       ai: {
@@ -102,7 +125,7 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
       classification: {
         priority,
         priorityLabel: priority === "must" ? "必看" : "可能有用",
-        reason: normalizeReason(item.reason),
+        summary,
         actionHints: [],
         keep: true,
         reviewedBy: "deepseek"
@@ -118,7 +141,7 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
       classification: {
         priority: "skip",
         priorityLabel: "已忽略",
-        reason: "AI 判断无需邮件提醒。",
+        summary: "无需邮件提醒。",
         actionHints: [],
         keep: false,
         reviewedBy: "deepseek"
@@ -181,6 +204,8 @@ export async function reviewArticlesWithAi({ articles, config, targetDate }) {
   const completion = await client.chat.completions.create({
     model: config.deepseek.model,
     temperature: config.deepseek.temperature,
+    thinking: { type: config.deepseek.thinking },
+    reasoning_effort: config.deepseek.reasoningEffort,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
