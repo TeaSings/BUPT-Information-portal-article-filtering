@@ -121,6 +121,31 @@ async function waitForLoginSuccess(page, config) {
   return false;
 }
 
+function isRetryableNavigationError(error) {
+  const message = String(error?.message || "");
+  return /ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_NETWORK_CHANGED|Timeout/i.test(message);
+}
+
+async function openPortalWithRetry(page, config, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await page.goto(config.portal.baseUrl, { waitUntil: "domcontentloaded" });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableNavigationError(error)) throw error;
+
+      const delayMs = attempt * 5000;
+      console.warn(
+        `Portal navigation failed on attempt ${attempt}/${attempts}; retrying in ${delayMs / 1000}s. ${error.message}`
+      );
+      await page.waitForTimeout(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 const args = parseArgs();
 const config = await loadConfig();
 
@@ -141,7 +166,7 @@ page.setDefaultTimeout(config.portalAuth.loginTimeoutMs);
 
 try {
   console.log("Opening BUPT portal for automatic login.");
-  await page.goto(config.portal.baseUrl, { waitUntil: "domcontentloaded" });
+  await openPortalWithRetry(page, config);
   await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
 
   if (!(await detectLogin(page))) {

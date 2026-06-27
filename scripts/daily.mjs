@@ -6,7 +6,12 @@ import { crawlPortal } from "./lib/crawler.mjs";
 import { paths } from "./lib/paths.mjs";
 import { writeJson } from "./lib/fs-utils.mjs";
 import { saveReports } from "./lib/report-lib.mjs";
-import { cleanupDailyQueue, enqueueDailyReport, processPendingQueue } from "./lib/queue.mjs";
+import {
+  cleanupDailyQueue,
+  enqueueDailyReport,
+  processPendingQueue,
+  requeueIfMissingRecipients
+} from "./lib/queue.mjs";
 import { reviewArticlesWithAi } from "./lib/ai-review.mjs";
 
 const args = parseArgs();
@@ -60,6 +65,12 @@ if (queued.enqueued) {
   console.log(`Queued daily email job: ${queued.path}`);
 } else {
   console.log(`Daily email job for ${targetDate} already exists in ${queued.status}.`);
+  if (queued.status === "sent") {
+    const delivery = await requeueIfMissingRecipients(config, targetDate);
+    if (delivery.requeued) {
+      console.log(`Requeued daily email job for ${targetDate}; missing ${delivery.missing.length} current recipient(s).`);
+    }
+  }
 }
 
 if (hasFlag(args, "no-send")) {

@@ -29,8 +29,7 @@ export async function checkUrl(label, url) {
 const config = await loadConfig();
 const targets = [
   ["Portal", config.portal.baseUrl],
-  ["Auth", "https://auth.bupt.edu.cn/authserver/login"],
-  ["VPN", "https://vpn.bupt.edu.cn"]
+  ["Auth", "https://auth.bupt.edu.cn/authserver/login"]
 ];
 
 let failed = false;
@@ -46,6 +45,6 @@ for (const [label, url] of targets) {
 }
 
 if (failed) {
-  console.error("Network check failed. Connect the BUPT VPN first, then rerun `npm run netcheck`.");
+  console.error("Network check failed. Connect the campus network or BUPT VPN, then rerun `npm run netcheck`.");
   process.exitCode = 2;
 }

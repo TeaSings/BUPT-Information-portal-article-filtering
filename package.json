@@ -14,7 +14,7 @@
     "queue": "node scripts/process-queue.mjs",
     "cleanup": "node scripts/cleanup-daily.mjs",
     "daily": "node scripts/daily.mjs",
-    "hourly": "node scripts/hourly.mjs",
+    "auto": "node scripts/auto.mjs",
     "netcheck": "node scripts/netcheck.mjs",
     "doctor": "node scripts/doctor.mjs"
   },

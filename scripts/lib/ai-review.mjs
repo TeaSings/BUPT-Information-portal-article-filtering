@@ -38,9 +38,24 @@ function normalizePriority(value) {
   return value === "watch" ? "watch" : "must";
 }
 
+function normalizeSection(value, priority = "must") {
+  if (value === "summary") return "summary";
+  if (value === "open") return "open";
+  return priority === "watch" ? "summary" : "open";
+}
+
 function normalizeSummary(value) {
   const text = cleanText(value);
   if (!text) return "这篇文章包含一条可能需要关注的信息。";
+  return text.endsWith("。") || text.endsWith("！") || text.endsWith("？")
+    ? text
+    : `${text}。`;
+}
+
+function normalizeOpenReason(value, section) {
+  const text = cleanText(value);
+  if (section !== "open") return "";
+  if (!text) return "原文里可能有入口、附件或具体说明，建议打开确认。";
   return text.endsWith("。") || text.endsWith("！") || text.endsWith("？")
     ? text
     : `${text}。`;
@@ -114,8 +129,11 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
     if (!prepared || used.has(prepared.id)) continue;
     used.add(prepared.id);
 
-    const priority = normalizePriority(item.priority);
+    const fallbackPriority = normalizePriority(item.priority);
+    const section = normalizeSection(item.section, fallbackPriority);
+    const priority = item.priority ? fallbackPriority : section === "open" ? "must" : "watch";
     const summary = normalizeSummary(item.summary);
+    const openReason = normalizeOpenReason(item.open_reason, section);
     kept.push({
       ...prepared.original,
       ai: {
@@ -125,7 +143,10 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
       classification: {
         priority,
         priorityLabel: priority === "must" ? "必看" : "可能有用",
+        section,
+        sectionLabel: section === "open" ? "需要点开确认" : "读摘要就够了",
         summary,
+        openReason,
         actionHints: [],
         keep: true,
         reviewedBy: "deepseek"
@@ -152,6 +173,10 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
     must: kept.filter((article) => article.classification.priority === "must"),
     watch: kept.filter((article) => article.classification.priority === "watch")
   };
+  const bySection = {
+    open: kept.filter((article) => article.classification.section === "open"),
+    summary: kept.filter((article) => article.classification.section === "summary")
+  };
 
   return {
     targetDate,
@@ -160,11 +185,13 @@ function buildFilteredFromAi({ targetDate, articles, preparedArticles, aiResult,
       provider: "deepseek",
       model,
       overall: cleanText(aiResult.overall),
+      aside: cleanText(aiResult.aside),
       reviewedArticles: preparedArticles.length
     },
     kept,
     skipped,
     byPriority,
+    bySection,
     stats: {
       total: articles.length,
       reviewed: preparedArticles.length,

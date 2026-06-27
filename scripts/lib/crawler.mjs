@@ -219,14 +219,35 @@ function scoreArticleCandidate(candidate, section, targetDate) {
   return score;
 }
 
-async function safeGoto(page, url, config) {
-  await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: config.crawler.navigationTimeoutMs
-  });
-  await page.waitForLoadState("networkidle", {
-    timeout: Math.min(config.crawler.navigationTimeoutMs, 10000)
-  }).catch(() => {});
+function isRetryableNavigationError(error) {
+  const message = String(error?.message || "");
+  return /ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_NETWORK_CHANGED|Timeout/i.test(message);
+}
+
+async function safeGoto(page, url, config, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: config.crawler.navigationTimeoutMs
+      });
+      await page.waitForLoadState("networkidle", {
+        timeout: Math.min(config.crawler.navigationTimeoutMs, 10000)
+      }).catch(() => {});
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableNavigationError(error)) throw error;
+
+      const delayMs = attempt * 5000;
+      console.warn(
+        `[warn] Navigation failed on attempt ${attempt}/${attempts}; retrying in ${delayMs / 1000}s: ${url}`
+      );
+      await page.waitForTimeout(delayMs);
+    }
+  }
+  throw lastError;
 }
 
 async function extractLinks(page, config) {

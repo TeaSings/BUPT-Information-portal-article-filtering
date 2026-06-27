@@ -1,69 +1,88 @@
 # BUPT Portal Monitor
 
-北邮信息门户日报脚本：抓取前一天新闻和通知，读取正文与图片 OCR 文本，用 DeepSeek Pro 精简成邮件，并按收件人去重发送。
+北邮信息门户日报脚本。它会读取前一天发布的新闻和通知，结合正文与图片 OCR 文本交给 DeepSeek 判断，再把值得关注的内容整理成一封邮件。
 
-## Features
+## 功能
 
-- 新闻、通知抓取
-- 图片 OCR
-- DeepSeek Pro 筛选与摘要
-- QQ/SMTP 邮件发送
-- 按收件人避免重复发送
-- 支持 headless 门户登录和服务器每小时运行
+- 抓取信息门户新闻和通知
+- 识别文章图片中的文字
+- 使用 DeepSeek 生成精简日报
+- 通过 SMTP 发送邮件
+- 按收件人记录发送状态，避免重复发送
+- 支持本地 headless 自动登录
 
-## Setup
+## 安装
+
+需要 Node.js 20 或更高版本。
 
 ```bash
 npm install
 cp .env.example .env
+```
+
+编辑 `.env`，填写邮箱、DeepSeek API Key 和北邮账号信息。
+
+```bash
 npm run doctor
 ```
 
-编辑 `.env`，至少填写：
+## 使用
 
-- SMTP：`SMTP_USER`、`SMTP_PASS`、`MAIL_FROM`、`MAIL_TO`
-- DeepSeek：`DEEPSEEK_API_KEY`
-- 自动登录：`BUPT_AUTO_LOGIN`、`BUPT_USERNAME`、`BUPT_PASSWORD`
-
-本地手动登录：
+检查网络：
 
 ```bash
-npm run login
+npm run netcheck
 ```
 
-headless 自动登录：
+自动登录门户：
 
 ```bash
 npm run login:auto
 ```
 
-## Usage
+生成并发送前一天日报：
 
 ```bash
 npm run daily
-npm run hourly
-npm run netcheck
 ```
 
-常用辅助命令：
+本地自动化推荐使用幂等入口：
 
 ```bash
-npm run check
-npm run review
-npm run report
-npm run send -- --force
-npm run queue -- --retry-failed
-npm run cleanup
+npm run auto
+```
+
+`auto` 会先检查网络和队列状态；如果当天已经给所有当前收件人发送过，就不会重复发送。如果新增了收件人，它只会给缺发的邮箱补发。
+
+## 常用命令
+
+```bash
+npm run review       # 用已有抓取结果重新生成 AI 筛选
+npm run report       # 用已有筛选结果重新生成报告
+npm run queue        # 处理待发送队列
+npm run cleanup      # 清理旧队列文件
 ```
 
 指定日期：
 
 ```bash
-npm run daily -- --date 2026-06-24 --force
+npm run daily -- --date 2026-06-26
 ```
 
-## Deploy
+只生成不发送：
 
-Ubuntu/systemd 部署见 [deploy/ubuntu-deploy.md](deploy/ubuntu-deploy.md)。
+```bash
+npm run daily -- --no-send
+```
 
-运行数据位于 `state/`、`data/`、`reports/`、`daily/`，默认不进入 git。
+## 数据与安全
+
+以下内容默认不会进入 Git：
+
+- `.env`
+- `state/` 登录状态
+- `data/` 抓取结果与 OCR 缓存
+- `reports/` 生成的日报
+- `daily/` 发送队列和发送记录
+
+不要把真实账号、邮箱授权码、API Key 或登录态提交到仓库。
